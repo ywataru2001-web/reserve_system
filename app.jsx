@@ -13,10 +13,20 @@ import {
 } from 'lucide-react';
 
 /**
- * Vercelの環境変数からGASのURLを取得します
- * Viteを使用している場合、環境変数は 'VITE_' プリフィックスが必要です
+ * 環境変数の取得
+ * ES2015ターゲットでの互換性を保つため、process.env を使用して参照します。
+ * Vercelの環境変数設定で VITE_GAS_URL というキー名でGASのURLを保存してください。
  */
-const GAS_WEB_APP_URL = import.meta.env.VITE_GAS_URL || ""; 
+const getGasUrl = () => {
+  // Vite, Next.js, Webpackなど複数の環境に対応するためのフォールバック
+  try {
+    return process.env.VITE_GAS_URL || "";
+  } catch (e) {
+    return "";
+  }
+};
+
+const GAS_WEB_APP_URL = getGasUrl();
 
 export default function App() {
   const [slots, setSlots] = useState([]);
@@ -34,11 +44,17 @@ export default function App() {
     setIsLoading(true);
     try {
       const response = await fetch(GAS_WEB_APP_URL);
+      
+      if (!response.ok) {
+        throw new Error(`サーバーエラー: ${response.status} ${response.statusText}`);
+      }
+
       const data = await response.json();
       const sortedSlots = data.sort((a, b) => new Date(a.start) - new Date(b.start));
       setSlots(sortedSlots);
     } catch (err) {
-      setStatusMessage("予約枠の取得に失敗しました。環境変数が正しく設定されているか確認してください。");
+      console.error("Fetch error:", err);
+      setStatusMessage(`予約枠の取得に失敗しました: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -63,6 +79,11 @@ export default function App() {
           userEmail: formData.email,
         }),
       });
+
+      if (!response.ok) {
+        throw new Error(`送信エラー: ${response.status} ${response.statusText}`);
+      }
+
       const result = await response.json();
       if (result.success) {
         setBookingStatus('success');
@@ -92,8 +113,8 @@ export default function App() {
           <AlertCircle className="w-12 h-12 text-amber-600 mx-auto mb-6" />
           <h1 className="text-2xl font-bold mb-4">環境変数の設定が必要です</h1>
           <p className="text-slate-600 mb-6 text-sm leading-relaxed">
-            Vercelのダッシュボードで <code>VITE_GAS_URL</code> を設定してください。
-            ローカル開発の場合は <code>.env.local</code> ファイルに記述します。
+            Vercelのダッシュボードで <code>VITE_GAS_URL</code> を設定してください。<br/>
+            設定後、Vercelで一度<strong>再デプロイ（Redeploy）</strong>を行う必要があります。
           </p>
         </div>
       </div>
@@ -112,6 +133,14 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-6 py-10 grid lg:grid-cols-12 gap-10">
         <div className="lg:col-span-7">
           <h2 className="text-lg font-bold mb-6 flex items-center gap-2"><Clock className="w-5 h-5 text-blue-600" />予約可能な日程</h2>
+          
+          {statusMessage && bookingStatus === 'idle' && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-700 rounded-xl flex items-center gap-3">
+              <AlertCircle className="w-5 h-5" />
+              <p className="text-sm font-medium">{statusMessage}</p>
+            </div>
+          )}
+
           {isLoading ? (
             <div className="bg-white rounded-3xl p-20 flex flex-col items-center justify-center shadow-sm border border-slate-200">
               <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
@@ -119,23 +148,30 @@ export default function App() {
             </div>
           ) : (
             <div className="grid gap-4">
-              {slots.map((slot) => (
-                <button key={slot.id} onClick={() => setSelectedSlot(slot)} className={`w-full text-left p-6 rounded-2xl border-2 transition-all ${selectedSlot?.id === slot.id ? 'bg-blue-50 border-blue-600 shadow-lg' : 'bg-white border-white hover:border-blue-200'}`}>
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-6">
-                      <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center ${selectedSlot?.id === slot.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                        <span className="text-[10px] uppercase font-bold">{new Date(slot.start).toLocaleDateString('ja-JP', {weekday: 'short'})}</span>
-                        <span className="text-xl font-bold">{new Date(slot.start).getDate()}</span>
+              {slots.length === 0 ? (
+                <div className="bg-white rounded-3xl p-16 text-center border-2 border-dashed border-slate-200">
+                  <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500">現在、予約可能な枠はありません。</p>
+                </div>
+              ) : (
+                slots.map((slot) => (
+                  <button key={slot.id} onClick={() => setSelectedSlot(slot)} className={`w-full text-left p-6 rounded-2xl border-2 transition-all ${selectedSlot?.id === slot.id ? 'bg-blue-50 border-blue-600 shadow-lg' : 'bg-white border-white hover:border-blue-200'}`}>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-6">
+                        <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center ${selectedSlot?.id === slot.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                          <span className="text-[10px] uppercase font-bold">{new Date(slot.start).toLocaleDateString('ja-JP', {weekday: 'short'})}</span>
+                          <span className="text-xl font-bold">{new Date(slot.start).getDate()}</span>
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold">{formatDate(slot.start)}</h3>
+                          <p className="text-slate-500 text-sm font-medium">{formatTime(slot.start)} 〜 {formatTime(slot.end)}</p>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="text-lg font-bold">{formatDate(slot.start)}</h3>
-                        <p className="text-slate-500 text-sm font-medium">{formatTime(slot.start)} 〜 {formatTime(slot.end)}</p>
-                      </div>
+                      <ChevronRight className={`w-6 h-6 ${selectedSlot?.id === slot.id ? 'text-blue-600' : 'text-slate-300'}`} />
                     </div>
-                    <ChevronRight className={`w-6 h-6 ${selectedSlot?.id === slot.id ? 'text-blue-600' : 'text-slate-300'}`} />
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -148,6 +184,7 @@ export default function App() {
                 <div className="text-center py-10">
                   <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
                   <p className="font-bold text-lg">予約が完了しました！</p>
+                  <p className="text-sm text-slate-500 mt-2">{statusMessage}</p>
                 </div>
               ) : (
                 <form onSubmit={handleBookingSubmit} className="space-y-6">
@@ -156,12 +193,21 @@ export default function App() {
                       {formatDate(selectedSlot.start)} {formatTime(selectedSlot.start)}開始
                     </div>
                   )}
-                  <input required disabled={!selectedSlot} className="w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-600 outline-none" placeholder="お名前" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
-                  <input required disabled={!selectedSlot} type="email" className="w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-600 outline-none" placeholder="メールアドレス" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                  <div className="space-y-4">
+                    <input required disabled={!selectedSlot || bookingStatus === 'submitting'} className="w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-blue-600 outline-none transition-all" placeholder="お名前" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+                    <input required disabled={!selectedSlot || bookingStatus === 'submitting'} type="email" className="w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-blue-600 outline-none transition-all" placeholder="メールアドレス" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                  </div>
                   <button type="submit" disabled={!selectedSlot || bookingStatus === 'submitting'} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-blue-200 flex items-center justify-center gap-3">
                     {bookingStatus === 'submitting' ? <Loader2 className="w-6 h-6 animate-spin" /> : '予約を確定する'}
                   </button>
                 </form>
+              )}
+
+              {bookingStatus === 'error' && (
+                <div className="mt-6 p-4 bg-red-50 border border-red-100 text-red-700 rounded-xl flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <p className="text-sm font-medium">{statusMessage}</p>
+                </div>
               )}
             </div>
           </div>
