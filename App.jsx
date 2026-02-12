@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 /**
- * 環境変数の取得ヘルパー (Vite用)
+ * 環境変数の取得ヘルパー
  */
 const getEnv = (key) => {
   try {
@@ -48,6 +48,7 @@ const App = () => {
   const [isGapiLoaded, setIsGapiLoaded] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', note: '' });
+  const [errorMessage, setErrorMessage] = useState("");
 
   // Google API 初期化
   useEffect(() => {
@@ -57,19 +58,27 @@ const App = () => {
         script.src = src; script.async = true; script.defer = true; script.onload = resolve;
         document.body.appendChild(script);
       });
+
+      if (!CONFIG.API_KEY || !CONFIG.CLIENT_ID) {
+        setErrorMessage("APIキーまたはクライアントIDが設定されていません。Vercelの環境変数を確認してください。");
+      }
+
       await loadScript('https://apis.google.com/js/api.js');
       await loadScript('https://accounts.google.com/gsi/client');
+
       window.gapi.load('client', async () => {
         try {
           await window.gapi.client.init({ apiKey: CONFIG.API_KEY, discoveryDocs: CONFIG.DISCOVERY_DOCS });
           setIsGapiLoaded(true);
-        } catch (err) { console.error(err); }
+        } catch (err) {
+          console.error("GAPI Init Error:", err);
+          setErrorMessage("Google APIの初期化に失敗しました。APIキーが正しいか確認してください。");
+        }
       });
     };
     loadScripts();
   }, []);
 
-  // カレンダーからスロットを取得
   const fetchSlots = useCallback(async () => {
     if (!isGapiLoaded || !isAuthorized) return;
     setIsLoading(true);
@@ -88,15 +97,29 @@ const App = () => {
         isBooked: ev.description?.includes('予約確定済み') 
       }));
       setAvailableSlots(slots);
-    } catch (e) { console.error(e); } finally { setIsLoading(false); }
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("カレンダー情報の取得に失敗しました。");
+    } finally {
+      setIsLoading(false);
+    }
   }, [isGapiLoaded, isAuthorized, selectedDate]);
 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
 
   const handleAuth = () => {
+    if (!window.google) return;
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: CONFIG.CLIENT_ID, scope: CONFIG.SCOPES,
-      callback: (res) => { if (res.access_token) setIsAuthorized(true); },
+      callback: (res) => {
+        if (res.access_token) {
+          setIsAuthorized(true);
+          setErrorMessage("");
+        }
+      },
+      error_callback: (err) => {
+        setErrorMessage("認証に失敗しました。ドメインの許可設定を確認してください。");
+      }
     });
     client.requestAccessToken();
   };
@@ -127,9 +150,7 @@ const App = () => {
           <div className="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-100"><CalendarCheck className="text-white w-6 h-6" /></div>
           <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600 uppercase">Smart Reserve</span>
         </div>
-        {!isAuthorized ? (
-          <button onClick={handleAuth} className="bg-white text-slate-700 border border-slate-200 px-5 py-2.5 rounded-full text-sm font-bold shadow-sm active:scale-95 transition-all">管理者ログイン</button>
-        ) : (
+        {isAuthorized && (
           <div className="flex items-center gap-4">
             <span className="text-xs font-bold text-green-500 bg-green-50 px-3 py-1 rounded-full border border-green-100">● Google同期中</span>
             <button onClick={() => setIsAuthorized(false)} className="text-slate-400 hover:text-slate-600 transition-colors"><LogOut className="w-5 h-5" /></button>
@@ -138,6 +159,13 @@ const App = () => {
       </nav>
 
       <main className="max-w-6xl mx-auto px-4 py-8 md:py-12">
+        {errorMessage && (
+          <div className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-sm flex items-center gap-3 animate-in fade-in">
+            <AlertCircle className="w-5 h-5" />
+            <p className="font-bold">{errorMessage}</p>
+          </div>
+        )}
+
         {!isAuthorized ? (
           <div className="text-center py-20 bg-white rounded-[3rem] border border-dashed border-slate-300 shadow-sm max-w-2xl mx-auto px-6">
             <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -147,12 +175,17 @@ const App = () => {
             <p className="text-slate-500 mb-8 max-w-md mx-auto leading-relaxed">
               Googleカレンダーと連携して、空き時間を自動公開。スケジュール調整をシンプルにします。
             </p>
-            <button onClick={handleAuth} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95">
+            <button 
+              onClick={handleAuth} 
+              className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95 flex items-center gap-2 mx-auto"
+            >
+              <CalendarIcon className="w-5 h-5" />
               Googleカレンダーと連携
             </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-in fade-in duration-700">
+            {/* カレンダー & スロット表示部分は以前と同じ */}
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-white">
                 <div className="flex justify-between items-center mb-8">
@@ -174,16 +207,6 @@ const App = () => {
                       <button key={d} onClick={() => setSelectedDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d))} className={`aspect-square flex items-center justify-center rounded-2xl text-sm font-bold transition-all ${isSel ? 'bg-indigo-600 text-white shadow-xl scale-110 z-10' : 'hover:bg-indigo-50 text-slate-600'}`}>{d}</button>
                     );
                   })}
-                </div>
-              </div>
-
-              <div className="bg-indigo-600 p-6 rounded-[2rem] text-white shadow-xl flex gap-4">
-                <Info className="w-6 h-6 shrink-0 opacity-80" />
-                <div>
-                  <p className="text-sm font-bold mb-1">予約システムの使い方</p>
-                  <p className="text-xs text-indigo-100 leading-relaxed">
-                    カレンダーに「{CONFIG.SLOT_KEYWORD}」という件名の予定を入れてください。ユーザーがその枠を選んで予約すると、詳細が自動登録されます。
-                  </p>
                 </div>
               </div>
             </div>
@@ -212,6 +235,7 @@ const App = () => {
         )}
       </main>
 
+      {/* Booking Modal */}
       {isBookingModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden border border-white relative animate-in zoom-in-95">
