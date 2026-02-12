@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ReactDOM from 'react-dom/client';
 import { 
   Calendar as CalendarIcon, 
   Clock, 
@@ -7,92 +8,136 @@ import {
   CheckCircle2, 
   ChevronLeft, 
   ChevronRight,
+  Lock,
   CalendarCheck,
+  AlertCircle,
   Loader2,
-  AlertCircle
+  Info,
+  LogOut,
+  Settings
 } from 'lucide-react';
 
 /**
- * 1. CONFIGURATION
- * Vercelの環境変数 VITE_GAS_API_URL を取得します。
+ * 環境変数の取得ヘルパー
  */
-const getGasUrl = () => {
+const getEnv = (key) => {
   try {
-    // Vite環境変数。import.meta.env が使えない環境でもエラーにならないように保護
-    const url = (import.meta && import.meta.env) ? import.meta.env.VITE_GAS_API_URL : "";
-    return url || "";
+    // @ts-ignore
+    return import.meta.env[key] || "";
   } catch (e) {
     return "";
   }
 };
 
-const GAS_API_URL = getGasUrl();
+const CONFIG = {
+  API_KEY: getEnv('VITE_GOOGLE_API_KEY'),
+  CLIENT_ID: getEnv('VITE_GOOGLE_CLIENT_ID'),
+  DISCOVERY_DOCS: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"],
+  SCOPES: "https://www.googleapis.com/auth/calendar.events",
+  SLOT_KEYWORD: "予約可能"
+};
 
-export default function App() {
+const App = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [slots, setSlots] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [availableSlots, setAvailableSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [bookingStatus, setBookingStatus] = useState('idle');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGapiLoaded, setIsGapiLoaded] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', note: '' });
-  const [status, setStatus] = useState('idle');
+  const [errorMessage, setErrorMessage] = useState("");
 
-  /**
-   * 2. FETCH SLOTS FROM GAS
-   */
-  const fetchSlots = useCallback(async () => {
-    if (!GAS_API_URL) return;
-    setLoading(true);
-    try {
-      const response = await fetch(`${GAS_API_URL}?action=getSlots&date=${selectedDate.toISOString()}`);
-      const data = await response.json();
-      // dataが配列であることを確認してセット
-      setSlots(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error("Fetch Error:", err);
-      setSlots([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedDate]);
-
+  // Google API 初期化
   useEffect(() => {
-    if (GAS_API_URL) {
-      fetchSlots();
-    }
-  }, [fetchSlots]);
-
-  /**
-   * 3. SUBMIT BOOKING TO GAS
-   */
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (status === 'loading') return;
-    setStatus('loading');
-    
-    try {
-      // GASの doPost(e) に対してリクエストを送信
-      await fetch(GAS_API_URL, {
-        method: 'POST',
-        mode: 'no-cors', // GASの制限を回避
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'createBooking',
-          ...formData,
-          rawStart: selectedSlot.rawStart,
-          rawEnd: selectedSlot.rawEnd
-        })
+    const loadScripts = async () => {
+      const loadScript = (src) => new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = src; script.async = true; script.defer = true; script.onload = resolve;
+        document.body.appendChild(script);
       });
-      
-      // no-cors のためレスポンス内容は確認できないが、完了とみなす
-      setStatus('success');
-      setFormData({ name: '', email: '', note: '' });
-      setTimeout(fetchSlots, 1500);
-    } catch (err) {
-      console.error("Booking Error:", err);
-      setStatus('error');
+
+      if (!CONFIG.API_KEY || !CONFIG.CLIENT_ID) {
+        setErrorMessage("APIキーまたはクライアントIDが設定されていません。Vercelの環境変数を確認してください。");
+      }
+
+      await loadScript('https://apis.google.com/js/api.js');
+      await loadScript('https://accounts.google.com/gsi/client');
+
+      window.gapi.load('client', async () => {
+        try {
+          await window.gapi.client.init({ apiKey: CONFIG.API_KEY, discoveryDocs: CONFIG.DISCOVERY_DOCS });
+          setIsGapiLoaded(true);
+        } catch (err) {
+          console.error("GAPI Init Error:", err);
+          setErrorMessage("Google APIの初期化に失敗しました。APIキーが正しいか確認してください。");
+        }
+      });
+    };
+    loadScripts();
+  }, []);
+
+  const fetchSlots = useCallback(async () => {
+    if (!isGapiLoaded || !isAuthorized) return;
+    setIsLoading(true);
+    try {
+      const start = new Date(selectedDate); start.setHours(0,0,0,0);
+      const end = new Date(selectedDate); end.setHours(23,59,59,999);
+      const res = await window.gapi.client.calendar.events.list({
+        calendarId: 'primary', timeMin: start.toISOString(), timeMax: end.toISOString(),
+        q: CONFIG.SLOT_KEYWORD, singleEvents: true, orderBy: 'startTime',
+      });
+      const slots = (res.result.items || []).map(ev => ({
+        id: ev.id,
+        start: new Date(ev.start.dateTime || ev.start.date).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        end: new Date(ev.end.dateTime || ev.end.date).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        rawStart: ev.start.dateTime, rawEnd: ev.end.dateTime,
+        isBooked: ev.description?.includes('予約確定済み') 
+      }));
+      setAvailableSlots(slots);
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("カレンダー情報の取得に失敗しました。");
+    } finally {
+      setIsLoading(false);
     }
+  }, [isGapiLoaded, isAuthorized, selectedDate]);
+
+  useEffect(() => { fetchSlots(); }, [fetchSlots]);
+
+  const handleAuth = () => {
+    if (!window.google) return;
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: CONFIG.CLIENT_ID, scope: CONFIG.SCOPES,
+      callback: (res) => {
+        if (res.access_token) {
+          setIsAuthorized(true);
+          setErrorMessage("");
+        }
+      },
+      error_callback: (err) => {
+        setErrorMessage("認証に失敗しました。ドメインの許可設定を確認してください。");
+      }
+    });
+    client.requestAccessToken();
+  };
+
+  const handleBookingSubmit = async (e) => {
+    e.preventDefault(); setBookingStatus('loading');
+    try {
+      await window.gapi.client.calendar.events.insert({
+        calendarId: 'primary',
+        resource: {
+          summary: `予約確定: ${formData.name}様`,
+          description: `お名前: ${formData.name}\nメール: ${formData.email}\n備考: ${formData.note}\n#予約確定済み`,
+          start: { dateTime: selectedSlot.rawStart }, end: { dateTime: selectedSlot.rawEnd },
+          attendees: [{ email: formData.email }],
+        },
+      });
+      setBookingStatus('success'); fetchSlots();
+    } catch (e) { setBookingStatus('error'); }
   };
 
   const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
@@ -100,118 +145,135 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-10">
-      <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-30 shadow-sm">
+      <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          <div className="bg-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-indigo-100">
-            <CalendarCheck className="text-white w-6 h-6" />
-          </div>
-          <span className="text-xl font-black tracking-tighter text-slate-800 uppercase">Smart Reserve</span>
+          <div className="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-100"><CalendarCheck className="text-white w-6 h-6" /></div>
+          <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600 uppercase">Smart Reserve</span>
         </div>
+        {isAuthorized && (
+          <div className="flex items-center gap-4">
+            <span className="text-xs font-bold text-green-500 bg-green-50 px-3 py-1 rounded-full border border-green-100">● Google同期中</span>
+            <button onClick={() => setIsAuthorized(false)} className="text-slate-400 hover:text-slate-600 transition-colors"><LogOut className="w-5 h-5" /></button>
+          </div>
+        )}
       </nav>
 
-      <main className="max-w-6xl mx-auto px-4 py-12">
-        {!GAS_API_URL && (
-          <div className="mb-12 p-8 bg-white border-2 border-amber-200 rounded-[2.5rem] shadow-xl text-center flex flex-col items-center gap-4">
-            <AlertCircle className="text-amber-600 w-8 h-8" />
-            <h3 className="text-xl font-black text-amber-800">API URL 未設定</h3>
-            <p className="text-slate-500 text-sm">Vercelの環境変数 VITE_GAS_API_URL を設定してください。</p>
+      <main className="max-w-6xl mx-auto px-4 py-8 md:py-12">
+        {errorMessage && (
+          <div className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-sm flex items-center gap-3 animate-in fade-in">
+            <AlertCircle className="w-5 h-5" />
+            <p className="font-bold">{errorMessage}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-          <div className="lg:col-span-5">
-            <div className="bg-white p-8 rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-white sticky top-24">
-              <div className="flex justify-between items-center mb-8 px-2">
-                <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                  <CalendarIcon className="w-5 h-5 text-indigo-600" />
-                  {currentMonth.getFullYear()} / {currentMonth.getMonth() + 1}
-                </h2>
-                <div className="flex gap-2">
-                  <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-3 hover:bg-slate-50 rounded-2xl transition-all"><ChevronLeft /></button>
-                  <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-3 hover:bg-slate-50 rounded-2xl transition-all"><ChevronRight /></button>
+        {!isAuthorized ? (
+          <div className="text-center py-20 bg-white rounded-[3rem] border border-dashed border-slate-300 shadow-sm max-w-2xl mx-auto px-6">
+            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Lock className="w-10 h-10" />
+            </div>
+            <h2 className="text-2xl font-black mb-4 tracking-tighter text-slate-800">予約管理を始めましょう</h2>
+            <p className="text-slate-500 mb-8 max-w-md mx-auto leading-relaxed">
+              Googleカレンダーと連携して、空き時間を自動公開。スケジュール調整をシンプルにします。
+            </p>
+            <button 
+              onClick={handleAuth} 
+              className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95 flex items-center gap-2 mx-auto"
+            >
+              <CalendarIcon className="w-5 h-5" />
+              Googleカレンダーと連携
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-in fade-in duration-700">
+            {/* カレンダー & スロット表示部分は以前と同じ */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-white">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-xl font-black text-slate-800">{currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月</h2>
+                  <div className="flex gap-2">
+                    <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><ChevronLeft /></button>
+                    <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><ChevronRight /></button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-black text-slate-300 mb-4 tracking-[0.2em] uppercase">
+                  {['sun','mon','tue','wed','thu','fri','sat'].map(d => <div key={d}>{d}</div>)}
+                </div>
+                <div className="grid grid-cols-7 gap-2">
+                  {[...Array(firstDay(currentMonth.getFullYear(), currentMonth.getMonth()))].map((_, i) => <div key={i} />)}
+                  {[...Array(daysInMonth(currentMonth.getFullYear(), currentMonth.getMonth()))].map((_, i) => {
+                    const d = i + 1;
+                    const isSel = selectedDate.getDate() === d && selectedDate.getMonth() === currentMonth.getMonth() && selectedDate.getFullYear() === currentMonth.getFullYear();
+                    return (
+                      <button key={d} onClick={() => setSelectedDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d))} className={`aspect-square flex items-center justify-center rounded-2xl text-sm font-bold transition-all ${isSel ? 'bg-indigo-600 text-white shadow-xl scale-110 z-10' : 'hover:bg-indigo-50 text-slate-600'}`}>{d}</button>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="grid grid-cols-7 text-center text-[10px] font-black text-slate-300 mb-6 tracking-widest uppercase">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d}>{d}</div>)}
-              </div>
-              <div className="grid grid-cols-7 gap-3">
-                {[...Array(firstDay(currentMonth.getFullYear(), currentMonth.getMonth()))].map((_, i) => <div key={`e-${i}`} />)}
-                {[...Array(daysInMonth(currentMonth.getFullYear(), currentMonth.getMonth()))].map((_, i) => {
-                  const day = i + 1;
-                  const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === currentMonth.getMonth();
-                  return (
-                    <button 
-                      key={day} 
-                      onClick={() => setSelectedDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))}
-                      className={`aspect-square flex items-center justify-center rounded-2xl font-bold text-sm transition-all ${
-                        isSelected ? 'bg-indigo-600 text-white shadow-xl scale-110' : 'hover:bg-indigo-50 text-slate-600'
-                      }`}
-                    >
-                      {day}
-                    </button>
-                  );
-                })}
+            </div>
+
+            <div className="lg:col-span-7">
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-white min-h-[500px]">
+                <h3 className="text-3xl font-black text-slate-800 tracking-tighter uppercase mb-8">Availability</h3>
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center h-80 text-slate-300 font-bold uppercase tracking-widest text-sm"><Loader2 className="w-10 h-10 animate-spin mb-4 text-indigo-600" />Syncing...</div>
+                ) : availableSlots.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {availableSlots.map(s => (
+                      <button key={s.id} disabled={s.isBooked} onClick={() => { setSelectedSlot(s); setIsBookingModalOpen(true); }} className={`group p-6 rounded-3xl border-2 transition-all text-left relative overflow-hidden ${s.isBooked ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : 'bg-white border-slate-100 hover:border-indigo-600 hover:shadow-2xl hover:-translate-y-1'}`}>
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 transition-colors ${s.isBooked ? 'bg-slate-200' : 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white'}`}><Clock className="w-5 h-5" /></div>
+                        <p className={`text-xl font-black tracking-tight ${s.isBooked ? 'text-slate-400' : 'text-slate-900'}`}>{s.start} - {s.end}</p>
+                        <p className="text-[10px] text-slate-400 font-black mt-2 uppercase tracking-widest">{s.isBooked ? 'Booked' : 'Reserve Now'}</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-80 text-center text-slate-400 font-bold uppercase tracking-widest"><AlertCircle className="w-12 h-12 text-slate-100 mb-6" />No Slots</div>
+                )}
               </div>
             </div>
           </div>
+        )}
+      </main>
 
-          <div className="lg:col-span-7">
-            <div className="bg-white p-8 md:p-10 rounded-[3rem] shadow-2xl border border-white min-h-[550px]">
-              <div className="mb-10 flex justify-between items-end border-b pb-8">
-                <div>
-                  <h3 className="text-3xl font-black text-slate-800 tracking-tight">TIME SLOTS</h3>
-                  <p className="text-slate-400 font-bold mt-2 text-xs uppercase tracking-[0.2em]">
-                    {selectedDate.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'long' })}
-                  </p>
-                </div>
-              </div>
-
-              {loading ? (
-                <div className="flex flex-col items-center justify-center h-80 space-y-6">
-                  <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
-                  <p className="text-slate-300 font-black text-[10px] tracking-widest uppercase tracking-widest">Loading...</p>
-                </div>
-              ) : slots.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {slots.map(s => (
-                    <button 
-                      key={s.id} 
-                      disabled={s.isBooked} 
-                      onClick={() => { setSelectedSlot(s); setModalOpen(true); setStatus('idle'); }} 
-                      className={`p-8 rounded-[2.5rem] border-2 transition-all text-left ${
-                        s.isBooked ? 'bg-slate-50 border-slate-100 opacity-40 grayscale' : 'bg-white border-slate-100 hover:border-indigo-600 hover:shadow-xl'
-                      }`}
-                    >
-                      <p className={`text-2xl font-black ${s.isBooked ? 'text-slate-400' : 'text-slate-900'}`}>{s.start} - {s.end}</p>
-                      <p className="text-[10px] text-slate-400 font-black mt-3 uppercase tracking-widest">{s.isBooked ? '不可' : '予約'}</p>
-                    </button>
-                  ))}
+      {/* Booking Modal */}
+      {isBookingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden border border-white relative animate-in zoom-in-95">
+            <button onClick={() => bookingStatus !== 'loading' && setIsBookingModalOpen(false)} className="absolute top-6 right-8 text-slate-300 hover:text-slate-600 font-bold text-2xl z-20">&times;</button>
+            <div className="p-8 sm:p-10">
+              {bookingStatus === 'success' ? (
+                <div className="text-center py-10 animate-in zoom-in-95">
+                  <CheckCircle2 className="w-20 h-20 text-green-500 mx-auto mb-8 shadow-inner" />
+                  <h2 className="text-3xl font-black uppercase mb-4 tracking-tighter">Done</h2>
+                  <p className="text-slate-500 font-medium mb-10">予約をカレンダーへ送信しました。</p>
+                  <button onClick={() => { setIsBookingModalOpen(false); setBookingStatus('idle'); }} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold transition-all active:scale-95">Close</button>
                 </div>
               ) : (
-                <div className="text-center py-20 text-slate-300 font-bold">枠が見つかりません</div>
+                <form onSubmit={handleBookingSubmit} className="space-y-6">
+                  <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-800">Reservation</h2>
+                  <div className="grid grid-cols-2 gap-2 text-center font-black text-[10px] uppercase mb-6">
+                    <div className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-slate-500">{selectedDate.toLocaleDateString('ja-JP')}</div>
+                    <div className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-slate-500">{selectedSlot?.start} - {selectedSlot?.end}</div>
+                  </div>
+                  <div className="space-y-4">
+                    <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white rounded-2xl outline-none transition-all font-bold text-sm shadow-inner" placeholder="NAME" />
+                    <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white rounded-2xl outline-none transition-all font-bold text-sm shadow-inner" placeholder="EMAIL" />
+                    <textarea rows="3" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white rounded-2xl outline-none transition-all font-bold text-sm resize-none shadow-inner" placeholder="MESSAGE"></textarea>
+                  </div>
+                  <button type="submit" disabled={bookingStatus === 'loading'} className="w-full mt-4 py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black hover:bg-indigo-700 shadow-xl flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50">
+                    {bookingStatus === 'loading' ? <Loader2 className="animate-spin w-6 h-6" /> : "CONFIRM"}
+                  </button>
+                </form>
               )}
             </div>
           </div>
         </div>
-      </div>
+      )}
+    </div>
+  );
+};
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md">
-          <div className="bg-white w-full max-w-lg rounded-[3.5rem] shadow-2xl p-10 relative border border-white">
-            <button onClick={() => setModalOpen(false)} className="absolute top-10 right-10 text-slate-300 text-3xl font-bold">×</button>
-            {status === 'success' ? (
-              <div className="text-center py-10">
-                <CheckCircle2 className="w-24 h-24 text-green-500 mx-auto mb-10" />
-                <h2 className="text-4xl font-black text-slate-800 mb-6 uppercase">Accepted</h2>
-                <button onClick={() => { setModalOpen(false); setStatus('idle'); }} className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black uppercase tracking-widest text-xs">Close</button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                <h2 className="text-3xl font-black text-slate-800 mb-10 tracking-tighter uppercase border-l-4 border-indigo-600 pl-4">Reservation</h2>
-                <div className="space-y-5">
-                  <div className="relative">
-                    <User className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
-                    <input required className="w-full pl-14 pr-8 py-5 bg-slate-50 rounded-[1.5rem] outline-none font-bold text-sm" placeholder="お名前" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                  </div>
-                  <div className="relative">
-                    <Mail className="absolute left-6 top-1/2 -translate-y-
+const root = document.getElementById('root');
+if (root) { ReactDOM.createRoot(root).render(<React.StrictMode><App /></React.StrictMode>); }
+
+export default App;
