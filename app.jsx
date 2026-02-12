@@ -1,270 +1,333 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar as CalendarIcon, 
+  Calendar, 
   Clock, 
   User, 
   Mail, 
-  CheckCircle2, 
+  CheckCircle, 
+  AlertCircle, 
   ChevronRight, 
-  ChevronLeft,
   Loader2,
-  AlertCircle,
-  CalendarDays
+  CalendarCheck,
+  Info
 } from 'lucide-react';
 
-// 【重要】GASで「デプロイ」した後に発行されるウェブアプリURLをここに貼り付けてください
-const GAS_WEBAPP_URL = ""; 
+/**
+ * 設定: GASの「ウェブアプリ」URLをここに設定します
+ * デプロイ後のURL (https://script.google.com/macros/s/.../exec) を貼り付けてください
+ */
+const GAS_WEB_APP_URL = ""; 
 
-const App = () => {
-  const [step, setStep] = useState(1); 
-  const [viewDate, setViewDate] = useState(new Date()); 
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [selectedTime, setSelectedTime] = useState('');
-  const [formData, setFormData] = useState({ name: '', email: '', note: '' });
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
-  const [bookedSlots, setBookedSlots] = useState([]); // GASから取得した予約済みデータ
-  const [message, setMessage] = useState(null);
+export default function App() {
+  // ステート管理
+  const [slots, setSlots] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [formData, setFormData] = useState({ name: '', email: '' });
+  const [bookingStatus, setBookingStatus] = useState('idle'); // idle | submitting | success | error
+  const [statusMessage, setStatusMessage] = useState('');
 
-  // セミナーの基本時間枠
-  const timeSlots = [
-    "10:00", "11:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"
-  ];
-
-  // GASから現在の予約状況を取得
-  useEffect(() => {
-    if (GAS_WEBAPP_URL) {
-      fetchBookedData();
-    }
-  }, []);
-
-  const fetchBookedData = async () => {
-    setIsFetching(true);
-    try {
-      const response = await fetch(GAS_WEBAPP_URL);
-      const data = await response.json();
-      setBookedSlots(data); // [{date: "2023-10-25", time: "10:00"}, ...]
-    } catch (error) {
-      console.error("Failed to fetch booked data:", error);
-    } finally {
-      setIsFetching(false);
-    }
-  };
-
-  const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
-  const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
-
-  const handlePrevMonth = () => {
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
-  };
-
-  const isPast = (day) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const checkDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
-    return checkDate < today;
-  };
-
-  const formatDate = (year, month, day) => {
-    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  };
-
-  // 特定の日時が既に予約されているかチェック
-  const isSlotBooked = (date, time) => {
-    return bookedSlots.some(slot => slot.date === date && slot.time === time);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!GAS_WEBAPP_URL) {
-      setMessage({ type: 'error', text: 'GAS_WEBAPP_URL が設定されていません。' });
+  // 予約枠の取得 (GASからGET)
+  const fetchAvailableSlots = async () => {
+    if (!GAS_WEB_APP_URL) {
+      setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
     try {
-      // GASはCORS制限が厳しいため、通常は no-cors を使用します
-      // 送信に成功してもレスポンス内容は取得できないため、成功とみなして次に進みます
-      await fetch(GAS_WEBAPP_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          date: selectedDate,
-          time: selectedTime
-        })
-      });
-      setStep(3);
-    } catch (error) {
-      setMessage({ type: 'error', text: '通信エラーが発生しました。' });
+      const response = await fetch(GAS_WEB_APP_URL);
+      const data = await response.json();
+      // 未来の日時順に並び替え
+      const sortedSlots = data.sort((a, b) => new Date(a.start) - new Date(b.start));
+      setSlots(sortedSlots);
+    } catch (err) {
+      console.error("Fetch error:", err);
+      setStatusMessage("予約枠の取得に失敗しました。接続設定を確認してください。");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const daysInMonth = getDaysInMonth(viewDate.getFullYear(), viewDate.getMonth());
-  const firstDay = getFirstDayOfMonth(viewDate.getFullYear(), viewDate.getMonth());
-  const calendarDays = [];
-  for (let i = 0; i < firstDay; i++) calendarDays.push(null);
-  for (let i = 1; i <= daysInMonth; i++) calendarDays.push(i);
+  useEffect(() => {
+    fetchAvailableSlots();
+  }, []);
 
-  return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">Seminar Reservation</h1>
-          <p className="text-slate-500 mt-2">ご希望の日時を選択して予約を完了してください。</p>
-        </div>
+  // 予約の実行 (GASへPOST)
+  const handleBookingSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedSlot || !formData.name || !formData.email) return;
 
-        <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100">
-          <div className="flex border-b border-slate-100">
-            {[1, 2, 3].map((s) => (
-              <div key={s} className={`flex-1 h-1.5 transition-colors ${step >= s ? 'bg-indigo-600' : 'bg-slate-100'}`} />
-            ))}
+    setBookingStatus('submitting');
+    
+    try {
+      const response = await fetch(GAS_WEB_APP_URL, {
+        method: 'POST',
+        mode: 'cors', // CORS対応
+        headers: {
+          'Content-Type': 'text/plain', // GASのPOST制約による
+        },
+        body: JSON.stringify({
+          eventId: selectedSlot.id,
+          userName: formData.name,
+          userEmail: formData.email,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setBookingStatus('success');
+        setStatusMessage(result.message || "予約が確定しました！");
+        // 成功後、リストを更新するために少し待ってからリセット
+        setTimeout(() => {
+          setSelectedSlot(null);
+          setFormData({ name: '', email: '' });
+          setBookingStatus('idle');
+          fetchAvailableSlots();
+        }, 5000);
+      } else {
+        throw new Error(result.message || "予約に失敗しました。");
+      }
+    } catch (err) {
+      console.error("Submit error:", err);
+      setBookingStatus('error');
+      setStatusMessage(err.message || "通信エラーが発生しました。");
+    }
+  };
+
+  // 日時フォーマット関数
+  const formatDate = (isoString) => {
+    return new Intl.DateTimeFormat('ja-JP', {
+      month: 'long',
+      day: 'numeric',
+      weekday: 'short',
+    }).format(new Date(isoString));
+  };
+
+  const formatTime = (isoString) => {
+    return new Intl.DateTimeFormat('ja-JP', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(isoString));
+  };
+
+  // URL未設定時のプレースホルダ
+  if (!GAS_WEB_APP_URL) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="bg-white p-10 rounded-3xl shadow-xl max-w-lg w-full text-center border border-slate-100">
+          <div className="bg-amber-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="w-8 h-8 text-amber-600" />
           </div>
-
-          <div className="p-6 md:p-10">
-            {step === 1 && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                {/* Calendar */}
-                <div>
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="font-bold text-xl text-slate-800">
-                      {viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月
-                    </h3>
-                    <div className="flex gap-2">
-                      <button onClick={handlePrevMonth} className="p-2 hover:bg-slate-100 rounded-full"><ChevronLeft /></button>
-                      <button onClick={handleNextMonth} className="p-2 hover:bg-slate-100 rounded-full"><ChevronRight /></button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-7 gap-1 text-center mb-2 font-bold text-xs text-slate-400">
-                    {['日','月','火','水','木','金','土'].map(d => <div key={d}>{d}</div>)}
-                  </div>
-                  <div className="grid grid-cols-7 gap-2">
-                    {calendarDays.map((day, idx) => {
-                      if (day === null) return <div key={idx} />;
-                      const dateStr = formatDate(viewDate.getFullYear(), viewDate.getMonth(), day);
-                      const isSelected = selectedDate === dateStr;
-                      const disabled = isPast(day);
-                      return (
-                        <button
-                          key={idx}
-                          disabled={disabled}
-                          onClick={() => { setSelectedDate(dateStr); setSelectedTime(''); }}
-                          className={`aspect-square flex items-center justify-center rounded-2xl text-sm font-bold transition-all
-                            ${disabled ? 'text-slate-200 cursor-not-allowed' : 'hover:bg-indigo-50 text-slate-700'}
-                            ${isSelected ? 'bg-indigo-600 text-white shadow-lg' : ''}
-                          `}
-                        >
-                          {day}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Time Slots */}
-                <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100">
-                  <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-                    <Clock size={20} className="text-indigo-600" />
-                    {selectedDate ? `${selectedDate} の空き状況` : '日付を選択してください'}
-                  </h3>
-                  
-                  {isFetching ? (
-                    <div className="flex flex-col items-center justify-center h-48 text-slate-400">
-                      <Loader2 className="animate-spin mb-2" />
-                      <p className="text-xs font-bold uppercase tracking-widest">Loading slots...</p>
-                    </div>
-                  ) : selectedDate ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      {timeSlots.map((time) => {
-                        const booked = isSlotBooked(selectedDate, time);
-                        return (
-                          <button
-                            key={time}
-                            disabled={booked}
-                            onClick={() => setSelectedTime(time)}
-                            className={`py-4 rounded-2xl text-sm font-bold transition-all border
-                              ${booked ? 'bg-slate-100 border-transparent text-slate-300 cursor-not-allowed line-through' : 
-                                selectedTime === time ? 'bg-white border-indigo-600 text-indigo-600 ring-2 ring-indigo-100' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-400'}
-                            `}
-                          >
-                            {time} {booked && '(満席)'}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="h-48 flex items-center justify-center text-slate-400 text-sm">
-                      カレンダーから日付を選択してください
-                    </div>
-                  )}
-
-                  <button
-                    disabled={!selectedDate || !selectedTime}
-                    onClick={() => setStep(2)}
-                    className="w-full mt-10 bg-indigo-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-xl shadow-indigo-100"
-                  >
-                    次へ進む <ChevronRight size={20} />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {step === 2 && (
-              <form onSubmit={handleSubmit} className="max-w-lg mx-auto">
-                <div className="text-center mb-8">
-                  <h2 className="text-2xl font-bold text-slate-900">お客様情報</h2>
-                  <div className="mt-4 inline-flex items-center gap-4 bg-indigo-50 text-indigo-700 px-6 py-2 rounded-full font-bold text-sm">
-                    <span>{selectedDate}</span>
-                    <span className="w-1.5 h-1.5 bg-indigo-300 rounded-full"></span>
-                    <span>{selectedTime}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-5">
-                  <div className="relative">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="お名前" />
-                  </div>
-                  <div className="relative">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="メールアドレス" />
-                  </div>
-                  <textarea value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 h-32" placeholder="備考 (任意)" />
-                </div>
-
-                <div className="flex gap-4 mt-10">
-                  <button type="button" onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold">戻る</button>
-                  <button type="submit" disabled={isLoading} className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-xl shadow-indigo-100">
-                    {isLoading ? <Loader2 className="animate-spin" /> : '予約を確定する'}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {step === 3 && (
-              <div className="text-center py-12">
-                <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <CheckCircle2 size={56} />
-                </div>
-                <h2 className="text-3xl font-bold text-slate-900 mb-2">予約を承りました</h2>
-                <p className="text-slate-500 mb-10">
-                  ご登録いただいたメールアドレスに詳細をお送りしました。<br/>当日お会いできるのを楽しみにしています。
-                </p>
-                <button onClick={() => window.location.reload()} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-bold shadow-xl">トップに戻る</button>
-              </div>
-            )}
-          </div>
+          <h1 className="text-2xl font-bold text-slate-800 mb-4">初期設定が必要です</h1>
+          <p className="text-slate-600 leading-relaxed mb-6">
+            <code>GAS_WEB_APP_URL</code> 変数にデプロイしたGASのURLを設定してください。<br/>
+            これによりGoogleカレンダーとの通信が有効になります。
+          </p>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">
+      {/* ナビゲーション */}
+      <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-6 h-18 flex items-center justify-between py-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <CalendarCheck className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-xl font-black tracking-tight text-slate-800">Seminar Booking</span>
+          </div>
+          <div className="hidden md:block text-sm text-slate-500 font-medium">
+            管理者カレンダーと同期中
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto px-6 py-10">
+        <div className="grid lg:grid-cols-12 gap-10">
+          
+          {/* 左カラム: 日時選択 */}
+          <div className="lg:col-span-7">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-600" />
+                予約可能な日程
+              </h2>
+              <span className="text-xs font-semibold bg-slate-200 px-3 py-1 rounded-full text-slate-600">
+                {slots.length}件の空き
+              </span>
+            </div>
+
+            {isLoading ? (
+              <div className="bg-white rounded-3xl border border-slate-200 p-20 flex flex-col items-center justify-center shadow-sm">
+                <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+                <p className="text-slate-500 font-medium text-lg">カレンダーを読み込み中...</p>
+              </div>
+            ) : slots.length === 0 ? (
+              <div className="bg-white rounded-3xl border-2 border-dashed border-slate-200 p-20 text-center shadow-sm">
+                <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                <p className="text-slate-500 text-lg">現在、受付中の枠はありません。</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {slots.map((slot) => (
+                  <button
+                    key={slot.id}
+                    onClick={() => setSelectedSlot(slot)}
+                    className={`group w-full text-left p-6 rounded-2xl border-2 transition-all duration-300 ${
+                      selectedSlot?.id === slot.id
+                        ? 'bg-blue-50 border-blue-600 ring-4 ring-blue-50 shadow-lg'
+                        : 'bg-white border-white hover:border-blue-200 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-6">
+                        <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center transition-colors ${
+                          selectedSlot?.id === slot.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          <span className="text-[10px] uppercase font-bold">{new Date(slot.start).toLocaleDateString('ja-JP', {weekday: 'short'})}</span>
+                          <span className="text-xl font-bold leading-none">{new Date(slot.start).getDate()}</span>
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-800">{formatDate(slot.start)}</h3>
+                          <div className="flex items-center gap-2 text-slate-500 mt-1">
+                            <Clock className="w-4 h-4" />
+                            <span className="font-medium">{formatTime(slot.start)} 〜 {formatTime(slot.end)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-6 h-6 transition-all ${
+                        selectedSlot?.id === slot.id ? 'translate-x-1 text-blue-600' : 'text-slate-300 group-hover:text-slate-400'
+                      }`} />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 右カラム: 予約フォーム */}
+          <div className="lg:col-span-5">
+            <div className="sticky top-28">
+              <div className={`bg-white rounded-[2rem] shadow-2xl shadow-blue-900/5 border border-slate-200 overflow-hidden transition-all duration-500 ${!selectedSlot ? 'opacity-40 grayscale-[0.5]' : 'opacity-100'}`}>
+                <div className="bg-slate-900 p-8 text-white">
+                  <h2 className="text-2xl font-bold flex items-center gap-3">
+                    <User className="w-6 h-6 text-blue-400" />
+                    予約申し込み
+                  </h2>
+                  <p className="text-slate-400 mt-2 text-sm">必要事項を入力して送信してください。</p>
+                </div>
+
+                <div className="p-8">
+                  {bookingStatus === 'success' ? (
+                    <div className="py-10 text-center animate-in fade-in zoom-in duration-500">
+                      <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <CheckCircle className="w-10 h-10 text-green-600" />
+                      </div>
+                      <h3 className="text-2xl font-bold text-slate-800 mb-2">送信完了！</h3>
+                      <p className="text-slate-500">{statusMessage}</p>
+                      <p className="text-xs text-slate-400 mt-10 italic">この画面は数秒後にリセットされます...</p>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleBookingSubmit} className="space-y-6">
+                      {/* 選択中の枠情報 */}
+                      {selectedSlot ? (
+                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
+                          <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">選択中の日時</p>
+                            <p className="text-blue-900 font-bold">{formatDate(selectedSlot.start)} {formatTime(selectedSlot.start)}開始</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-slate-50 border border-slate-100 p-8 rounded-2xl text-center text-slate-400">
+                          <p className="text-sm font-medium">予約枠を選択するとフォームが有効になります</p>
+                        </div>
+                      )}
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2 ml-1">お名前</label>
+                          <div className="relative">
+                            <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                            <input
+                              required
+                              disabled={!selectedSlot || bookingStatus === 'submitting'}
+                              type="text"
+                              className="w-full pl-12 pr-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-blue-600 outline-none transition-all placeholder:text-slate-400 disabled:cursor-not-allowed"
+                              placeholder="山田 太郎"
+                              value={formData.name}
+                              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2 ml-1">メールアドレス</label>
+                          <div className="relative">
+                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                            <input
+                              required
+                              disabled={!selectedSlot || bookingStatus === 'submitting'}
+                              type="email"
+                              className="w-full pl-12 pr-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-blue-600 outline-none transition-all placeholder:text-slate-400 disabled:cursor-not-allowed"
+                              placeholder="tanaka@example.com"
+                              value={formData.email}
+                              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={!selectedSlot || bookingStatus === 'submitting'}
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-blue-200 active:scale-[0.98] flex items-center justify-center gap-3 disabled:shadow-none"
+                      >
+                        {bookingStatus === 'submitting' ? (
+                          <>
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                            送信中...
+                          </>
+                        ) : (
+                          'この日時で予約を確定する'
+                        )}
+                      </button>
+                    </form>
+                  )}
+
+                  {bookingStatus === 'error' && (
+                    <div className="mt-6 p-4 bg-red-50 border border-red-100 text-red-700 rounded-xl flex items-start gap-3 animate-shake">
+                      <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                      <p className="text-sm font-medium">{statusMessage}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-center mt-6 text-slate-400 text-xs px-10 leading-relaxed">
+                ※予約確定後、管理者がカレンダーを確認し、詳細を別途メールでご案内いたします。
+              </p>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <style>{`
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-4px); }
+          75% { transform: translateX(4px); }
+        }
+        .animate-shake {
+          animation: shake 0.3s ease-in-out infinite;
+          animation-iteration-count: 2;
+        }
+      `}</style>
     </div>
   );
-};
-
-export default App;
+}
