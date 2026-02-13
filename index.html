@@ -32,8 +32,29 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo } = React;
 
+        /**
+         * 環境変数またはローカルストレージからGASのURLを取得する
+         */
+        const getInitialGasUrl = () => {
+            try {
+                // 1. ビルド時に注入される環境変数をチェック (Vercel/Vite用)
+                // CDN版では通常動作しませんが、ビルド環境がある場合を考慮
+                const envUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GAS_URL) || 
+                               (typeof process !== 'undefined' && process.env?.VITE_GAS_URL);
+                if (envUrl) return envUrl.trim();
+
+                // 2. ブラウザに保存されたURLをチェック
+                const saved = localStorage.getItem('SAVED_GAS_URL');
+                if (saved && saved.startsWith('https')) return saved.trim();
+
+                return "";
+            } catch (e) {
+                return "";
+            }
+        };
+
         function App() {
-            const [gasUrl, setGasUrl] = useState(localStorage.getItem('SAVED_GAS_URL') || "");
+            const [gasUrl, setGasUrl] = useState(getInitialGasUrl());
             const [manualUrl, setManualUrl] = useState("");
             const [slots, setSlots] = useState([]);
             const [isLoading, setIsLoading] = useState(false);
@@ -125,7 +146,9 @@
                                 <i data-lucide="settings-2" className="text-white"></i>
                             </div>
                             <h1 className="text-xl font-black mb-2 tracking-tight">接続設定</h1>
-                            <p className="text-slate-400 text-xs mb-6 px-4">GASで発行したURLを貼り付けてください</p>
+                            <p className="text-slate-400 text-xs mb-6 px-4">
+                                Vercelの環境変数 <code>VITE_GAS_URL</code> を設定するか、直接URLを入力してください。
+                            </p>
                             <form onSubmit={(e) => { e.preventDefault(); localStorage.setItem('SAVED_GAS_URL', manualUrl); setGasUrl(manualUrl); }} className="space-y-4 text-left">
                                 <input 
                                     type="url" required value={manualUrl} onChange={e => setManualUrl(e.target.value)}
