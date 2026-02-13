@@ -18,32 +18,47 @@ import {
 
 /**
  * 環境変数の取得ヘルパー
- * 1. ローカルストレージ（診断用）
- * 2. Vite環境変数 (VITE_GAS_URL)
- * 3. URLパラメータ (gas_url)
+ * 安全なアクセス方法に変更し、ランタイムエラーを防止します。
  */
 const getInitialGasUrl = () => {
   try {
-    const saved = localStorage.getItem('DEBUG_GAS_URL');
-    if (saved && saved.startsWith('https')) return saved.trim();
-
-    // Vite環境変数の参照
-    if (import.meta.env && import.meta.env.VITE_GAS_URL) {
-      return import.meta.env.VITE_GAS_URL.trim();
+    // 1. ローカルストレージ（診断用）を確認
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = localStorage.getItem('DEBUG_GAS_URL');
+      if (saved && saved.startsWith('https')) return saved.trim();
     }
 
-    const params = new URLSearchParams(window.location.search);
-    const queryUrl = params.get('gas_url');
-    if (queryUrl) return queryUrl.trim();
+    // 2. Vite環境変数の参照 (安全なチェック)
+    // import.meta が存在しない環境でのクラッシュを回避
+    const viteEnv = (typeof import.meta !== 'undefined' && import.meta.env) 
+      ? import.meta.env.VITE_GAS_URL 
+      : undefined;
+    
+    if (viteEnv) return viteEnv.trim();
+
+    // 3. process.env (Webpack/Next.js系) の参照
+    const nodeEnv = (typeof process !== 'undefined' && process.env)
+      ? process.env.VITE_GAS_URL || process.env.REACT_APP_GAS_URL
+      : undefined;
+
+    if (nodeEnv) return nodeEnv.trim();
+
+    // 4. URLパラメータ (gas_url) からの取得
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const queryUrl = params.get('gas_url');
+      if (queryUrl) return queryUrl.trim();
+    }
 
     return "";
   } catch (e) {
+    console.error("Environment variable access error:", e);
     return "";
   }
 };
 
 const App = () => {
-  const [gasUrl, setGasUrl] = useState(getInitialGasUrl());
+  const [gasUrl, setGasUrl] = useState("");
   const [manualUrl, setManualUrl] = useState("");
   const [slots, setSlots] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -51,6 +66,11 @@ const App = () => {
   const [formData, setFormData] = useState({ name: '', email: '' });
   const [bookingStatus, setBookingStatus] = useState('idle'); // idle | submitting | success | error
   const [statusMessage, setStatusMessage] = useState('');
+
+  // マウント時に一度だけURLをセットアップ
+  useEffect(() => {
+    setGasUrl(getInitialGasUrl());
+  }, []);
 
   // GASから予約可能枠を取得
   const fetchAvailableSlots = useCallback(async (targetUrl = gasUrl) => {
@@ -66,14 +86,13 @@ const App = () => {
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        // 開始時間順にソート
         setSlots(data.sort((a, b) => new Date(a.start) - new Date(b.start)));
       } else {
         setSlots([]);
       }
     } catch (err) {
       console.error("Fetch error:", err);
-      setStatusMessage("データの取得に失敗しました。GASのURLとデプロイ設定を確認してください。");
+      setStatusMessage("データの取得に失敗しました。URLとGASの公開設定を確認してください。");
     } finally {
       setIsLoading(false);
     }
@@ -85,14 +104,16 @@ const App = () => {
     }
   }, [gasUrl, fetchAvailableSlots]);
 
-  // 手動でURLを設定（環境変数が反映されない場合の診断用）
+  // 手動でURLを設定
   const handleManualUrlSubmit = (e) => {
     e.preventDefault();
     if (!manualUrl.startsWith('https')) {
       alert("https:// から始まるURLを入力してください。");
       return;
     }
-    localStorage.setItem('DEBUG_GAS_URL', manualUrl);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('DEBUG_GAS_URL', manualUrl);
+    }
     setGasUrl(manualUrl);
   };
 
@@ -105,7 +126,7 @@ const App = () => {
     try {
       const response = await fetch(gasUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' }, // GASのCORS制限回避のため
+        headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({
           eventId: selectedSlot.id,
           userName: formData.name,
@@ -117,7 +138,6 @@ const App = () => {
       if (result.success) {
         setBookingStatus('success');
         setStatusMessage(result.message || "予約が完了しました。");
-        // 5秒後に初期化してリストを再取得
         setTimeout(() => {
           setSelectedSlot(null);
           setFormData({ name: '', email: '' });
@@ -146,8 +166,8 @@ const App = () => {
           </div>
           <h1 className="text-2xl font-black text-slate-800 text-center mb-4">接続設定</h1>
           <p className="text-slate-500 text-sm text-center mb-8 leading-relaxed">
-            GASのデプロイURLが設定されていません。<br/>
-            環境変数 <code>VITE_GAS_URL</code> を設定するか、以下に直接入力してください。
+            GASのURLが設定されていません。<br/>
+            以下に直接入力するか、Vercelの環境変数を設定してください。
           </p>
           <form onSubmit={handleManualUrlSubmit} className="space-y-4">
             <input 
@@ -158,7 +178,7 @@ const App = () => {
               className="w-full p-4 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-600 outline-none text-sm transition-all shadow-inner"
             />
             <button className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-200 flex items-center justify-center gap-2 transition-transform active:scale-95">
-              URLを一時保存して開始 <ArrowRight size={18} />
+              設定を保存して開始 <ArrowRight size={18} />
             </button>
           </form>
         </div>
@@ -184,7 +204,6 @@ const App = () => {
       </nav>
 
       <main className="max-w-5xl mx-auto p-6 grid md:grid-cols-2 gap-10 mt-6">
-        {/* 左側：日程選択エリア */}
         <section>
           <div className="flex items-center justify-between mb-8">
             <h2 className="font-bold text-slate-700 flex items-center gap-2 uppercase tracking-widest text-xs">
@@ -203,13 +222,12 @@ const App = () => {
           {isLoading ? (
             <div className="bg-white rounded-[2rem] p-24 flex flex-col items-center border border-slate-100 shadow-sm">
               <Loader2 className="animate-spin text-blue-500 mb-4" size={32} />
-              <p className="text-slate-400 text-sm font-medium">カレンダーを取得中...</p>
+              <p className="text-slate-400 text-sm font-medium">取得中...</p>
             </div>
           ) : slots.length === 0 ? (
             <div className="bg-white rounded-[2rem] p-20 text-center border-2 border-dashed border-slate-200 shadow-sm">
               <Search className="mx-auto text-slate-200 mb-6" size={48} />
-              <p className="text-slate-500 font-medium">現在、受付中の枠はありません。</p>
-              <p className="text-slate-400 text-xs mt-2 italic">管理者が「予約可能」枠を作成するまでお待ちください</p>
+              <p className="text-slate-500 font-medium">予約可能な枠はありません。</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -242,7 +260,6 @@ const App = () => {
           )}
         </section>
 
-        {/* 右側：申し込みフォームエリア */}
         <section>
           <div className={`bg-white p-8 md:p-10 rounded-[3rem] shadow-2xl border border-slate-100 sticky top-28 transition-all duration-500 ${!selectedSlot ? 'opacity-30 pointer-events-none translate-y-6 blur-[1px]' : 'opacity-100 translate-y-0'}`}>
             <div className="flex items-center gap-3 mb-8">
@@ -262,9 +279,6 @@ const App = () => {
                 </div>
                 <h3 className="text-2xl font-black text-slate-800 mb-3">予約が確定しました</h3>
                 <p className="text-slate-500 text-sm leading-relaxed px-6">{statusMessage}</p>
-                <div className="mt-10 text-[10px] text-slate-300 font-bold uppercase tracking-widest">
-                  Auto-refreshing in 5s...
-                </div>
               </div>
             ) : (
               <form onSubmit={handleBookingSubmit} className="space-y-6">
@@ -284,7 +298,7 @@ const App = () => {
                     <input 
                       required 
                       disabled={!selectedSlot || bookingStatus === 'submitting'}
-                      placeholder="お名前（フルネーム）" 
+                      placeholder="お名前" 
                       className="w-full pl-12 pr-4 py-5 rounded-2xl bg-slate-50 outline-none focus:bg-white border-2 border-transparent focus:border-blue-600 transition-all font-bold placeholder:text-slate-300 shadow-inner" 
                       value={formData.name} 
                       onChange={e => setFormData({...formData, name: e.target.value})} 
@@ -306,7 +320,7 @@ const App = () => {
 
                 <button 
                   disabled={!selectedSlot || bookingStatus === 'submitting'}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-6 rounded-3xl transition-all shadow-2xl shadow-blue-200 flex items-center justify-center gap-3 disabled:bg-slate-200 disabled:shadow-none active:scale-[0.98] mt-4"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-6 rounded-3xl transition-all shadow-2xl shadow-blue-200 flex items-center justify-center gap-3 active:scale-[0.98] mt-4"
                 >
                   {bookingStatus === 'submitting' ? (
                     <Loader2 className="animate-spin" size={24} />
@@ -318,16 +332,12 @@ const App = () => {
             )}
 
             {bookingStatus === 'error' && (
-              <div className="mt-8 p-4 bg-red-50 border border-red-100 text-red-700 rounded-2xl flex items-start gap-3 animate-shake">
+              <div className="mt-8 p-4 bg-red-50 border border-red-100 text-red-700 rounded-xl flex items-start gap-3 animate-shake">
                 <AlertCircle size={20} className="shrink-0 mt-0.5" />
                 <p className="text-xs font-bold leading-relaxed">{statusMessage}</p>
               </div>
             )}
           </div>
-          
-          <p className="text-center mt-8 text-[10px] text-slate-300 font-bold uppercase tracking-[0.2em]">
-            &copy; 2026 Seminar Booking Platform
-          </p>
         </section>
       </main>
 
