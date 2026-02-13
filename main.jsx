@@ -18,32 +18,27 @@ import {
 
 /**
  * 環境変数の取得ヘルパー
- * 安全なアクセス方法に変更し、ランタイムエラーを防止します。
+ * Vite/Vercel環境で安全に動作するように構成しています。
  */
 const getInitialGasUrl = () => {
   try {
-    // 1. ローカルストレージ（診断用）を確認
     if (typeof window !== 'undefined' && window.localStorage) {
       const saved = localStorage.getItem('DEBUG_GAS_URL');
       if (saved && saved.startsWith('https')) return saved.trim();
     }
 
-    // 2. Vite環境変数の参照 (安全なチェック)
-    // import.meta が存在しない環境でのクラッシュを回避
     const viteEnv = (typeof import.meta !== 'undefined' && import.meta.env) 
       ? import.meta.env.VITE_GAS_URL 
       : undefined;
     
     if (viteEnv) return viteEnv.trim();
 
-    // 3. process.env (Webpack/Next.js系) の参照
     const nodeEnv = (typeof process !== 'undefined' && process.env)
       ? process.env.VITE_GAS_URL || process.env.REACT_APP_GAS_URL
       : undefined;
 
     if (nodeEnv) return nodeEnv.trim();
 
-    // 4. URLパラメータ (gas_url) からの取得
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const queryUrl = params.get('gas_url');
@@ -64,15 +59,13 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [formData, setFormData] = useState({ name: '', email: '' });
-  const [bookingStatus, setBookingStatus] = useState('idle'); // idle | submitting | success | error
+  const [bookingStatus, setBookingStatus] = useState('idle');
   const [statusMessage, setStatusMessage] = useState('');
 
-  // マウント時に一度だけURLをセットアップ
   useEffect(() => {
     setGasUrl(getInitialGasUrl());
   }, []);
 
-  // GASから予約可能枠を取得
   const fetchAvailableSlots = useCallback(async (targetUrl = gasUrl) => {
     if (!targetUrl || !targetUrl.startsWith('https')) return;
     
@@ -104,7 +97,6 @@ const App = () => {
     }
   }, [gasUrl, fetchAvailableSlots]);
 
-  // 手動でURLを設定
   const handleManualUrlSubmit = (e) => {
     e.preventDefault();
     if (!manualUrl.startsWith('https')) {
@@ -117,7 +109,6 @@ const App = () => {
     setGasUrl(manualUrl);
   };
 
-  // 予約を送信
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     if (!selectedSlot) return;
@@ -156,7 +147,6 @@ const App = () => {
   const formatDate = (iso) => new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' }).format(new Date(iso));
   const formatTime = (iso) => new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 
-  // URL未設定時のガイド画面
   if (!gasUrl) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
