@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "build": "sed -i \"s|REPLACE_ME_GAS_URL|$VITE_GAS_URL|g\" index.html"
+  }
+}
