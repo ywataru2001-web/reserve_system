@@ -33,30 +33,26 @@
         const { useState, useEffect, useCallback, useMemo } = React;
 
         /**
-         * 環境変数またはローカルストレージからGASのURLを取得する
+         * 接続先のGAS URLを取得するロジック
          */
         const getInitialGasUrl = () => {
+            // --- 重要: Vercelビルド時にここが自動的に書き換えられます ---
+            const placeholder = "REPLACE_ME_GAS_URL";
+            
+            // 書き換えられている場合はそれを使用
+            if (placeholder && placeholder.startsWith('https')) {
+                return placeholder.trim();
+            }
+
+            // フォールバック: ローカルストレージに保存された設定
             try {
-                // 1. ビルドツールや環境変数から取得を試行
-                // SyntaxErrorを避けるため、直接的な import.meta 参照ではなく process.env 等を安全にチェックします
-                let envUrl = "";
-                
-                if (typeof process !== 'undefined' && process.env) {
-                    envUrl = process.env.VITE_GAS_URL || process.env.REACT_APP_GAS_URL || "";
-                }
-
-                if (envUrl) return envUrl.trim();
-
-                // 2. ブラウザに保存されたURLをチェック
                 if (typeof window !== 'undefined' && window.localStorage) {
                     const saved = localStorage.getItem('SAVED_GAS_URL');
                     if (saved && saved.startsWith('https')) return saved.trim();
                 }
+            } catch (e) {}
 
-                return "";
-            } catch (e) {
-                return "";
-            }
+            return "";
         };
 
         function App() {
@@ -104,9 +100,7 @@
                 const firstDay = new Date(year, month, 1).getDay();
                 const lastDate = new Date(year, month + 1, 0).getDate();
                 const res = [];
-                // 前月の空白
                 for (let i = 0; i < firstDay; i++) res.push(null);
-                // 当月の日付
                 for (let i = 1; i <= lastDate; i++) {
                     const d = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
                     res.push({ 
@@ -153,7 +147,7 @@
                             </div>
                             <h1 className="text-xl font-black mb-2 tracking-tight">接続設定</h1>
                             <p className="text-slate-400 text-xs mb-6 px-4">
-                                Vercelの環境変数 <code>VITE_GAS_URL</code> を設定するか、直接URLを入力してください。
+                                URLが設定されていません。以下に直接入力するか、Vercelの環境変数 <code>VITE_GAS_URL</code> を設定してください。
                             </p>
                             <form onSubmit={(e) => { e.preventDefault(); localStorage.setItem('SAVED_GAS_URL', manualUrl); setGasUrl(manualUrl); }} className="space-y-4 text-left">
                                 <input 
@@ -173,13 +167,12 @@
                     <nav className="bg-white/90 backdrop-blur-md border-b sticky top-0 z-50 px-5 py-3 flex justify-between items-center shadow-sm">
                         <div className="flex items-center gap-2">
                             <div className="bg-blue-600 p-1.5 rounded-lg text-white"><i data-lucide="calendar-days" className="w-4 h-4"></i></div>
-                            <span className="font-black text-lg tracking-tighter">Seminar Reservation</span>
+                            <span className="font-black text-lg tracking-tighter text-slate-800">Seminar Reservation</span>
                         </div>
                         <button onClick={() => { localStorage.removeItem('SAVED_GAS_URL'); window.location.reload(); }} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><i data-lucide="log-out" className="w-4 h-4"></i></button>
                     </nav>
 
                     <main className="max-w-6xl mx-auto p-4 md:p-6 grid lg:grid-cols-12 gap-8 mt-4">
-                        {/* 左：カレンダー */}
                         <div className="lg:col-span-7 space-y-6">
                             <div className="bg-white rounded-[2rem] shadow-sm border p-6 md:p-8 flex flex-col items-center">
                                 <div className="w-full max-w-md">
@@ -191,7 +184,6 @@
                                         </div>
                                     </div>
 
-                                    {/* カレンダー本体 */}
                                     <div className="grid grid-cols-7 gap-1 text-center">
                                         {['日', '月', '火', '水', '木', '金', '土'].map((d, i) => (
                                             <div key={d} className={`text-[10px] font-black uppercase tracking-widest pb-4 ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-300'}`}>{d}</div>
@@ -217,7 +209,6 @@
                                 </div>
                             </div>
 
-                            {/* 時間選択 */}
                             {selectedDate && (
                                 <div className="animate-slide-up bg-white rounded-[2rem] border p-6 shadow-sm">
                                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="clock" className="w-3 h-3"></i> 空き時間を選択</h3>
@@ -235,7 +226,6 @@
                             )}
                         </div>
 
-                        {/* 右：フォーム */}
                         <div className="lg:col-span-5">
                             <div className={`bg-white p-6 md:p-8 rounded-[2.5rem] shadow-xl border transition-all duration-500 sticky top-24 ${!selectedSlot ? 'opacity-30 grayscale pointer-events-none' : 'opacity-100'}`}>
                                 <h2 className="text-xl font-black mb-6 flex items-center gap-2 text-slate-800"><i data-lucide="user-check" className="text-blue-600 w-5 h-5"></i>予約申し込み</h2>
