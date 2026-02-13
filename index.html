@@ -18,22 +18,6 @@
             font-family: 'Inter', 'Noto Sans JP', sans-serif; 
             overflow-x: hidden;
         }
-        .calendar-container {
-            max-width: 100%;
-        }
-        .calendar-grid { 
-            display: grid; 
-            grid-template-cols: repeat(7, 1fr);
-            width: 100%;
-            gap: 4px;
-        }
-        .day-cell { 
-            aspect-ratio: 1 / 1; 
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-        }
         @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
         
@@ -164,47 +148,50 @@
                         <button onClick={() => { localStorage.removeItem('SAVED_GAS_URL'); window.location.reload(); }} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><i data-lucide="log-out" className="w-4 h-4"></i></button>
                     </nav>
 
-                    <main className="max-w-5xl mx-auto p-4 md:p-6 grid lg:grid-cols-12 gap-6 mt-2">
+                    <main className="max-w-6xl mx-auto p-4 md:p-6 grid lg:grid-cols-12 gap-8 mt-4">
                         {/* 左：カレンダー */}
-                        <div className="lg:col-span-7 space-y-4">
-                            <div className="bg-white rounded-[2rem] shadow-sm border p-4 md:p-8 calendar-container">
-                                <div className="flex items-center justify-between mb-6">
-                                    <h2 className="text-xl font-black text-slate-800">{currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月</h2>
-                                    <div className="flex gap-1">
-                                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-2 hover:bg-slate-50 rounded-full transition-colors border border-transparent hover:border-slate-100"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
-                                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-2 hover:bg-slate-50 rounded-full transition-colors border border-transparent hover:border-slate-100"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
-                                    </div>
-                                </div>
-
-                                <div className="calendar-grid text-center">
-                                    {['日', '月', '火', '水', '木', '金', '土'].map((d, i) => (
-                                        <div key={d} className={`text-[10px] font-black uppercase tracking-widest pb-3 ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-300'}`}>{d}</div>
-                                    ))}
-                                    {days.map((d, i) => (
-                                        <div key={i} className="day-cell">
-                                            {d ? (
-                                                <button 
-                                                    onClick={() => d.hasSlots && setSelectedDate(d.dateStr)}
-                                                    className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex flex-col items-center justify-center transition-all ${
-                                                        selectedDate === d.dateStr 
-                                                        ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-600 ring-offset-2' 
-                                                        : d.hasSlots ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold' : 'text-slate-300 cursor-default'
-                                                    }`}
-                                                >
-                                                    <span className="text-sm">{d.day}</span>
-                                                    {d.hasSlots && selectedDate !== d.dateStr && <div className="w-1 h-1 bg-blue-400 rounded-full mt-0.5"></div>}
-                                                </button>
-                                            ) : <div className="w-full h-full"></div>}
+                        <div className="lg:col-span-7 space-y-6">
+                            <div className="bg-white rounded-[2rem] shadow-sm border p-6 md:p-8 flex flex-col items-center">
+                                <div className="w-full max-w-md">
+                                    <div className="flex items-center justify-between mb-8 px-2">
+                                        <h2 className="text-xl font-black text-slate-800">{currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月</h2>
+                                        <div className="flex gap-1">
+                                            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-2 hover:bg-slate-50 rounded-full transition-colors border border-transparent hover:border-slate-100"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
+                                            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-2 hover:bg-slate-50 rounded-full transition-colors border border-transparent hover:border-slate-100"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
                                         </div>
-                                    ))}
+                                    </div>
+
+                                    {/* カレンダー本体 */}
+                                    <div className="grid grid-cols-7 gap-1 text-center">
+                                        {['日', '月', '火', '水', '木', '金', '土'].map((d, i) => (
+                                            <div key={d} className={`text-[10px] font-black uppercase tracking-widest pb-4 ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-300'}`}>{d}</div>
+                                        ))}
+                                        {days.map((d, i) => (
+                                            <div key={i} className="aspect-square flex items-center justify-center">
+                                                {d ? (
+                                                    <button 
+                                                        onClick={() => d.hasSlots && setSelectedDate(d.dateStr)}
+                                                        className={`w-full h-full max-w-[48px] max-h-[48px] rounded-xl flex flex-col items-center justify-center transition-all relative ${
+                                                            selectedDate === d.dateStr 
+                                                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-600 ring-offset-2 scale-105 z-10' 
+                                                            : d.hasSlots ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold' : 'text-slate-200 cursor-default'
+                                                        }`}
+                                                    >
+                                                        <span className="text-sm">{d.day}</span>
+                                                        {d.hasSlots && selectedDate !== d.dateStr && <div className="absolute bottom-1 w-1 h-1 bg-blue-400 rounded-full"></div>}
+                                                    </button>
+                                                ) : <div className="w-full h-full"></div>}
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
 
                             {/* 時間選択 */}
                             {selectedDate && (
-                                <div className="animate-slide-up bg-white rounded-[1.5rem] border p-5 shadow-sm">
-                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2"><i data-lucide="clock" className="w-3 h-3"></i> 空き時間を選択してください</h3>
-                                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                                <div className="animate-slide-up bg-white rounded-[2rem] border p-6 shadow-sm">
+                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="clock" className="w-3 h-3"></i> 空き時間を選択</h3>
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                                         {slots.filter(s => s.start.startsWith(selectedDate)).sort((a,b) => new Date(a.start) - new Date(b.start)).map(slot => (
                                             <button 
                                                 key={slot.id} onClick={() => setSelectedSlot(slot)}
@@ -220,50 +207,53 @@
 
                         {/* 右：フォーム */}
                         <div className="lg:col-span-5">
-                            <div className={`bg-white p-6 md:p-8 rounded-[2rem] shadow-xl border transition-all duration-500 sticky top-24 ${!selectedSlot ? 'opacity-30 grayscale pointer-events-none' : 'opacity-100'}`}>
+                            <div className={`bg-white p-6 md:p-8 rounded-[2.5rem] shadow-xl border transition-all duration-500 sticky top-24 ${!selectedSlot ? 'opacity-30 grayscale pointer-events-none' : 'opacity-100'}`}>
                                 <h2 className="text-xl font-black mb-6 flex items-center gap-2 text-slate-800"><i data-lucide="user-check" className="text-blue-600 w-5 h-5"></i>予約申し込み</h2>
                                 
                                 {bookingStatus === 'success' ? (
                                     <div className="text-center py-6 animate-slide-up">
                                         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><i data-lucide="check" className="text-green-600 w-8 h-8"></i></div>
-                                        <h3 className="text-lg font-black text-slate-800">予約を完了しました</h3>
+                                        <h3 className="text-lg font-black text-slate-800">予約が確定しました</h3>
                                         <p className="text-slate-400 text-xs mt-1">まもなくページを更新します</p>
                                     </div>
                                 ) : (
-                                    <form onSubmit={handleBooking} className="space-y-4">
+                                    <form onSubmit={handleBooking} className="space-y-5">
                                         {selectedSlot && (
-                                            <div className="bg-blue-600 text-white p-4 rounded-xl flex items-center gap-3 shadow-md mb-2">
-                                                <i data-lucide="info" className="text-white w-4 h-4"></i>
-                                                <p className="text-xs font-bold leading-tight">
-                                                    {selectedDate.replace(/-/g, '/')} {new Date(selectedSlot.start).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}開始
-                                                </p>
+                                            <div className="bg-blue-600 text-white p-5 rounded-2xl flex items-center gap-4 shadow-xl mb-2">
+                                                <i data-lucide="info" className="text-white w-5 h-5"></i>
+                                                <div>
+                                                    <p className="text-[10px] text-blue-100 uppercase font-bold tracking-tight">選択中の日程</p>
+                                                    <p className="text-sm font-black leading-tight">
+                                                        {selectedDate.replace(/-/g, '/')} {new Date(selectedSlot.start).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}開始
+                                                    </p>
+                                                </div>
                                             </div>
                                         )}
                                         <div className="space-y-4">
                                             <div className="relative">
                                                 <i data-lucide="user" className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300"></i>
-                                                <input required placeholder="氏名" className="w-full pl-12 pr-4 py-4 rounded-xl bg-white border-2 border-slate-100 focus:border-blue-600 outline-none font-bold text-sm transition-all" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                                                <input required placeholder="氏名" className="w-full pl-12 pr-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white outline-none font-bold text-sm transition-all" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
                                             </div>
                                             <div className="relative">
                                                 <i data-lucide="mail" className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300"></i>
-                                                <input required type="email" placeholder="メールアドレス" className="w-full pl-12 pr-4 py-4 rounded-xl bg-white border-2 border-slate-100 focus:border-blue-600 outline-none font-bold text-sm transition-all" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+                                                <input required type="email" placeholder="メールアドレス" className="w-full pl-12 pr-4 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white outline-none font-bold text-sm transition-all" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
                                             </div>
                                         </div>
-                                        <button disabled={bookingStatus === 'submitting'} className="w-full bg-slate-900 hover:bg-black text-white font-black py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 mt-2 active:scale-95 disabled:bg-slate-300">
-                                            {bookingStatus === 'submitting' ? <div className="w-5 h-5 border-4 border-white/30 border-t-white rounded-full animate-spin"></div> : "予約を確定する"}
+                                        <button disabled={bookingStatus === 'submitting'} className="w-full bg-slate-900 hover:bg-black text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 mt-4 active:scale-95 disabled:bg-slate-300">
+                                            {bookingStatus === 'submitting' ? <div className="w-5 h-5 border-4 border-white/30 border-t-white rounded-full animate-spin"></div> : "この内容で予約を確定する"}
                                         </button>
                                     </form>
                                 )}
                                 
                                 {errorInfo && (
-                                    <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold flex gap-2 items-start border border-red-100">
+                                    <div className="mt-4 p-4 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold flex gap-2 items-start border border-red-100">
                                         <i data-lucide="alert-circle" className="w-4 h-4 shrink-0"></i>
                                         <p>{errorInfo}</p>
                                     </div>
                                 )}
                             </div>
                             {!selectedSlot && (
-                                <div className="mt-4 p-4 bg-blue-50 text-blue-600 rounded-2xl text-[10px] font-bold text-center border border-blue-100">
+                                <div className="mt-6 p-5 bg-blue-50 text-blue-600 rounded-3xl text-[11px] font-bold text-center border border-blue-100">
                                     カレンダーから日付と時間を選択してください
                                 </div>
                             )}
